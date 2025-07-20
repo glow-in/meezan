@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meezan - Muslim Reward Tracker App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone for JSX transpilation in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        // Helper function to get the current date in YYYY-MM-DD format
+        const getTodayDateString = () => {
+            const today = new Date();
+            return today.toISOString().split('T')[0];
+        };
+
+        // Array of small prayers/duas
+        const smallPrayers = [
+            "SubhanAllah (Glory be to Allah)",
+            "Alhamdulillah (All praise is due to Allah)",
+            "Allahu Akbar (Allah is the Greatest)",
+            "La ilaha illallah (There is no god but Allah)",
+            "Astaghfirullah (I seek forgiveness from Allah)",
+            "Subhanallahi wa bihamdihi (Glory be to Allah and praise Him)",
+            "La hawla wa la quwwata illa billah (There is no might nor power except with Allah)",
+            "Hasbunallahu wa ni'mal wakeel (Allah is sufficient for us, and He is the best disposer of affairs)",
+            "Ya Allah (O Allah)",
+            "Rabbi Zidni Ilma (My Lord, increase me in knowledge)",
+        ];
+
+        // Key for localStorage
+        const LOCAL_STORAGE_KEY = 'meezanAppData';
+
+        // Main App Component
+        function App() {
+            const [isAppReady, setIsAppReady] = React.useState(false);
+            const [totalPoints, setTotalPoints] = React.useState(0);
+            const [dailyPrayers, setDailyPrayers] = React.useState({
+                fajr: false,
+                dhuhr: false,
+                asr: false,
+                maghrib: false,
+                isha: false,
+            });
+            const [goodDeeds, setGoodDeeds] = React.useState([]);
+            const [bonusTasks, setBonusTasks] = React.useState({
+                sunnahPrayers: false,
+                quranRecitation: false,
+                sunnahFasts: false,
+            });
+            const [lastResetDate, setLastResetDate] = React.useState('');
+            const [reminderMessage, setReminderMessage] = React.useState('');
+            const [newGoodDeedText, setNewGoodDeedText] = React.useState('');
+            const [newGoodDeedPoints, setNewGoodDeedPoints] = React.useState(10); // Default points for a good deed
+            const [randomPrayer, setRandomPrayer] = React.useState(''); // State for random prayer
+            const [currentStreak, setCurrentStreak] = React.useState(0); // New state for current streak
+            const [longestStreak, setLongestStreak] = React.useState(0); // New state for longest streak
+
+            // Function to save data to localStorage
+            const saveDataToLocalStorage = React.useCallback((data) => {
+                try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+                } catch (error) {
+                    console.error("Error saving to local storage:", error);
+                }
+            }, []);
+
+            // Function to load data from localStorage
+            const loadDataFromLocalStorage = React.useCallback(() => {
+                try {
+                    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+                    if (savedData) {
+                        const data = JSON.parse(savedData);
+                        setTotalPoints(data.totalPoints || 0);
+                        setDailyPrayers(data.dailyPrayers || { fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false });
+                        setGoodDeeds(data.goodDeeds || []);
+                        setBonusTasks(data.bonusTasks || { sunnahPrayers: false, quranRecitation: false, sunnahFasts: false });
+                        setLastResetDate(data.lastResetDate || '');
+                        setCurrentStreak(data.currentStreak || 0);
+                        setLongestStreak(data.longestStreak || 0);
+                    } else {
+                        // Initialize with default values if no data exists
+                        const initialData = {
+                            totalPoints: 0,
+                            dailyPrayers: { fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false },
+                            goodDeeds: [],
+                            bonusTasks: { sunnahPrayers: false, quranRecitation: false, sunnahFasts: false },
+                            lastResetDate: getTodayDateString(),
+                            currentStreak: 0,
+                            longestStreak: 0,
+                        };
+                        saveDataToLocalStorage(initialData);
+                        setTotalPoints(initialData.totalPoints);
+                        setDailyPrayers(initialData.dailyPrayers);
+                        setGoodDeeds(initialData.goodDeeds);
+                        setBonusTasks(initialData.bonusTasks);
+                        setLastResetDate(initialData.lastResetDate);
+                        setCurrentStreak(initialData.currentStreak);
+                        setLongestStreak(initialData.longestStreak);
+                    }
+                } catch (error) {
+                    console.error("Error loading from local storage:", error);
+                } finally {
+                    setIsAppReady(true);
+                }
+            }, [saveDataToLocalStorage]);
+
+            // Load data on initial app mount
+            React.useEffect(() => {
+                loadDataFromLocalStorage();
+            }, [loadDataFromLocalStorage]);
+
+            // Daily Prayer Reset, Deductions, and Streak Logic
+            const performDailyReset = React.useCallback(() => {
+                const todayDate = getTodayDateString();
+                // Only perform reset if the last reset was on a previous day
+                if (lastResetDate && lastResetDate < todayDate) {
+                    let pointsDeducted = 0;
+                    const missedPrayers = Object.values(dailyPrayers).filter(status => !status).length;
+                    pointsDeducted = missedPrayers * 5; // Deduct 5 points per missed prayer
+
+                    const newTotalPoints = Math.max(0, totalPoints - pointsDeducted); // Points don't go below 0
+
+                    let newCurrentStreak = currentStreak;
+                    let newLongestStreak = longestStreak;
+
+                    if (missedPrayers === 0) {
+                        // All prayers completed yesterday, increment streak
+                        newCurrentStreak += 1;
+                        if (newCurrentStreak > newLongestStreak) {
+                            newLongestStreak = newCurrentStreak;
+                        }
+                        setReminderMessage(`Masha'Allah! You completed all prayers yesterday! Streak: ${newCurrentStreak} days.`);
+                    } else {
+                        // Prayers missed, reset streak
+                        newCurrentStreak = 0;
+                        if (pointsDeducted > 0) {
+                            setReminderMessage(`You missed ${missedPrayers} prayers yesterday. ${pointsDeducted} points deducted. Streak reset.`);
+                        }
+                    }
+
+                    // Update state and save to local storage
+                    setTotalPoints(newTotalPoints);
+                    setDailyPrayers({ fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false });
+                    setLastResetDate(todayDate);
+                    setCurrentStreak(newCurrentStreak);
+                    setLongestStreak(newLongestStreak);
+
+                    saveDataToLocalStorage({
+                        totalPoints: newTotalPoints,
+                        dailyPrayers: { fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false },
+                        goodDeeds, // Keep existing good deeds
+                        bonusTasks, // Keep existing bonus tasks
+                        lastResetDate: todayDate,
+                        currentStreak: newCurrentStreak,
+                        longestStreak: newLongestStreak,
+                    });
+
+                } else if (!lastResetDate) {
+                    // First time loading, set lastResetDate if not already set
+                    setLastResetDate(todayDate);
+                    saveDataToLocalStorage({
+                        totalPoints, dailyPrayers, goodDeeds, bonusTasks,
+                        lastResetDate: todayDate, currentStreak, longestStreak
+                    });
+                }
+            }, [lastResetDate, dailyPrayers, totalPoints, currentStreak, longestStreak, goodDeeds, bonusTasks, saveDataToLocalStorage]);
+
+            React.useEffect(() => {
+                if (isAppReady) {
+                    performDailyReset();
+                }
+            }, [isAppReady, performDailyReset]);
+
+            // Prayer Reminder Logic (simple in-app message)
+            React.useEffect(() => {
+                const checkPrayerTimes = () => {
+                    const now = new Date();
+                    const hour = now.getHours();
+
+                    if (!dailyPrayers.fajr && hour >= 5 && hour < 7) {
+                        setReminderMessage('Time for Fajr prayer!');
+                    } else if (!dailyPrayers.dhuhr && hour >= 12 && hour < 14) {
+                        setReminderMessage('Time for Dhuhr prayer!');
+                    } else if (!dailyPrayers.asr && hour >= 16 && hour < 18) {
+                        setReminderMessage('Time for Asr prayer!');
+                    } else if (!dailyPrayers.maghrib && hour >= 18 && hour < 20) {
+                        setReminderMessage('Time for Maghrib prayer!');
+                    } else if (!dailyPrayers.isha && hour >= 20 && hour < 23) {
+                        setReminderMessage('Time for Isha prayer!');
+                    } else {
+                        // Clear reminder if all prayers are marked or outside prayer times
+                        if (Object.values(dailyPrayers).every(status => status)) {
+                            setReminderMessage('All prayers for today completed! Alhamdulillah.');
+                        } else if (hour >= 23 || hour < 5) {
+                            setReminderMessage(''); // No active prayer reminder outside these hours
+                        }
+                    }
+                };
+
+                const interval = setInterval(checkPrayerTimes, 60 * 1000); // Check every minute
+                checkPrayerTimes(); // Initial check
+
+                return () => clearInterval(interval);
+            }, [dailyPrayers]);
+
+            // Random Prayer display on app load
+            React.useEffect(() => {
+                if (isAppReady) {
+                    const randomIndex = Math.floor(Math.random() * smallPrayers.length);
+                    setRandomPrayer(smallPrayers[randomIndex]);
+                }
+            }, [isAppReady]); // Run once when app is ready
+
+            // Handle marking a prayer as complete or uncomplete
+            const handlePrayerComplete = (prayerName) => {
+                const isCompleted = dailyPrayers[prayerName];
+                const newDailyPrayers = { ...dailyPrayers, [prayerName]: !isCompleted };
+                const pointsChange = isCompleted ? -10 : 10; // Deduct if unmarking, add if marking
+                const newTotalPoints = totalPoints + pointsChange;
+
+                setDailyPrayers(newDailyPrayers);
+                setTotalPoints(newTotalPoints);
+
+                saveDataToLocalStorage({
+                    totalPoints: newTotalPoints,
+                    dailyPrayers: newDailyPrayers,
+                    goodDeeds,
+                    bonusTasks,
+                    lastResetDate,
+                    currentStreak,
+                    longestStreak,
+                });
+            };
+
+            // Handle adding a good deed
+            const handleAddGoodDeed = () => {
+                if (!newGoodDeedText.trim()) return;
+
+                const newDeed = {
+                    description: newGoodDeedText.trim(),
+                    points: Number(newGoodDeedPoints),
+                    date: new Date().toISOString(),
+                };
+                const updatedGoodDeeds = [...goodDeeds, newDeed];
+                const newTotalPoints = totalPoints + newDeed.points;
+
+                setGoodDeeds(updatedGoodDeeds);
+                setTotalPoints(newTotalPoints);
+
+                saveDataToLocalStorage({
+                    totalPoints: newTotalPoints,
+                    dailyPrayers,
+                    goodDeeds: updatedGoodDeeds,
+                    bonusTasks,
+                    lastResetDate,
+                    currentStreak,
+                    longestStreak,
+                });
+
+                setNewGoodDeedText('');
+                setNewGoodDeedPoints(10); // Reset to default
+            };
+
+            // Handle removing a good deed
+            const handleRemoveGoodDeed = (indexToRemove, pointsToDeduct) => {
+                const updatedGoodDeeds = goodDeeds.filter((_, index) => index !== indexToRemove);
+                const newTotalPoints = totalPoints - pointsToDeduct;
+
+                setGoodDeeds(updatedGoodDeeds);
+                setTotalPoints(newTotalPoints);
+
+                saveDataToLocalStorage({
+                    totalPoints: newTotalPoints,
+                    dailyPrayers,
+                    goodDeeds: updatedGoodDeeds,
+                    bonusTasks,
+                    lastResetDate,
+                    currentStreak,
+                    longestStreak,
+                });
+            };
+
+            // Handle marking a bonus task as complete or uncomplete
+            const handleBonusTaskComplete = (taskName, points) => {
+                const isCompleted = bonusTasks[taskName];
+                const newBonusTasks = { ...bonusTasks, [taskName]: !isCompleted };
+                const pointsChange = isCompleted ? -points : points; // Deduct if unmarking, add if marking
+                const newTotalPoints = totalPoints + pointsChange;
+
+                setBonusTasks(newBonusTasks);
+                setTotalPoints(newTotalPoints);
+
+                saveDataToLocalStorage({
+                    totalPoints: newTotalPoints,
+                    dailyPrayers,
+                    goodDeeds,
+                    bonusTasks: newBonusTasks,
+                    lastResetDate,
+                    currentStreak,
+                    longestStreak,
+                });
+            };
+
+            if (!isAppReady) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                        <div className="text-xl font-semibold text-gray-700">Loading app...</div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 font-inter text-gray-800 p-4 sm:p-6 lg:p-8 flex flex-col items-center">
+                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-6 sm:p-8 lg:p-10">
+                        <h1 className="text-3xl sm:text-4xl font-extrabold text-center text-emerald-700 mb-6">
+                            Meezan
+                        </h1>
+
+                        {randomPrayer && (
+                            <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md mb-6 shadow-md text-center" role="note">
+                                <p className="font-semibold text-lg italic">"{randomPrayer}"</p>
+                            </div>
+                        )}
+
+                        {reminderMessage && (
+                            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-md mb-6 shadow-md" role="alert">
+                                <p className="font-semibold">{reminderMessage}</p>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            {/* Total Points Card */}
+                            <div className="bg-emerald-600 text-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center">
+                                <h2 className="text-xl font-semibold mb-2">Total Reward Points</h2>
+                                <p className="text-5xl font-bold">{totalPoints}</p>
+                            </div>
+
+                            {/* Current Streak Card */}
+                            <div className="bg-purple-600 text-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center">
+                                <h2 className="text-xl font-semibold mb-2">Current Streak</h2>
+                                <p className="text-5xl font-bold">{currentStreak} <span className="text-3xl">days</span></p>
+                            </div>
+
+                            {/* Longest Streak Card */}
+                            <div className="bg-indigo-600 text-white p-6 rounded-xl shadow-lg flex flex-col items-center justify-center">
+                                <h2 className="text-xl font-semibold mb-2">Longest Streak</h2>
+                                <p className="text-5xl font-bold">{longestStreak} <span className="text-3xl">days</span></p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            {/* Daily Prayers Section */}
+                            <div className="bg-gray-50 p-6 rounded-xl shadow-lg">
+                                <h2 className="text-xl font-semibold text-emerald-700 mb-4">Daily Prayers (10 pts each)</h2>
+                                <div className="space-y-3">
+                                    {Object.entries(dailyPrayers).map(([prayer, completed]) => (
+                                        <div key={prayer} className="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border border-gray-200">
+                                            <span className={`text-lg font-medium capitalize ${completed ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
+                                                {prayer}
+                                            </span>
+                                            <button
+                                                onClick={() => handlePrayerComplete(prayer)}
+                                                className={`px-4 py-2 rounded-lg font-semibold transition-all duration-200
+                                                    ${completed
+                                                        ? 'bg-red-500 hover:bg-red-600 text-white shadow-md'
+                                                        : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md'
+                                                    }`}
+                                            >
+                                                {completed ? 'Unmark' : 'Mark Complete'}
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Good Deeds Section */}
+                            <div className="bg-gray-50 p-6 rounded-xl shadow-lg">
+                                <h2 className="text-xl font-semibold text-emerald-700 mb-4">Add Good Deeds</h2>
+                                <div className="flex flex-col gap-3 mb-4">
+                                    <input
+                                        type="text"
+                                        placeholder="e.g., Helped a neighbor, Donated to charity"
+                                        value={newGoodDeedText}
+                                        onChange={(e) => setNewGoodDeedText(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Points"
+                                        value={newGoodDeedPoints}
+                                        onChange={(e) => setNewGoodDeedPoints(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
+                                        min="1"
+                                    />
+                                    <button
+                                        onClick={handleAddGoodDeed}
+                                        className="w-full px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow-md transition-colors duration-200"
+                                    >
+                                        Add Deed
+                                    </button>
+                                </div>
+                                <h3 className="text-lg font-medium text-gray-700 mb-2">Recent Good Deeds:</h3>
+                                {goodDeeds.length === 0 ? (
+                                    <p className="text-gray-500 italic">No good deeds recorded yet.</p>
+                                ) : (
+                                    <ul className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                                        {goodDeeds.slice().reverse().map((deed, index) => (
+                                            <li key={index} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center">
+                                                <span className="text-gray-700">{deed.description}</span>
+                                                <button
+                                                    onClick={() => handleRemoveGoodDeed(index, deed.points)}
+                                                    className="ml-4 px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg shadow-md transition-colors duration-200"
+                                                >
+                                                    Remove
+                                                </button>
+                                                <span className="font-semibold text-emerald-600">+{deed.points} pts</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Bonus Tasks Section */}
+                        <div className="bg-gray-50 p-6 rounded-xl shadow-lg">
+                            <h2 className="text-xl font-semibold text-emerald-700 mb-4">Bonus Tasks (20 pts each)</h2>
+                            <div className="space-y-3">
+                                {Object.entries(bonusTasks).map(([taskName, completed]) => (
+                                    <div key={taskName} className="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border border-gray-200">
+                                        <span className={`text-lg font-medium ${completed ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
+                                            {taskName === 'sunnahPrayers' && 'Pray Sunnah (extra prayers)'}
+                                            {taskName === 'quranRecitation' && 'Recite Quran (e.g., 1 Juz/day)'}
+                                            {taskName === 'sunnahFasts' && 'Take Sunnah Fasts (e.g., Mondays/Thursdays)'}
+                                        </span>
+                                        <button
+                                            onClick={() => handleBonusTaskComplete(taskName, 20)} // Pass 20 points for bonus tasks
+                                            className={`px-4 py-2 rounded-lg font-semibold transition-all duration-200
+                                                ${completed
+                                                    ? 'bg-red-500 hover:bg-red-600 text-white shadow-md'
+                                                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md'
+                                                }`}
+                                        >
+                                            {completed ? 'Unmark' : 'Mark Complete'}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    {/* Copyright Notice */}
+                    <div className="text-center text-gray-500 text-xs mt-8">
+                        &copy; Nazim Raihan
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the App component into the 'root' div
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
